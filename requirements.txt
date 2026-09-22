@@ -1,0 +1,9 @@
+flask
+gunicorn
+pandas
+yfinance
+feedparser
+groq
+weasyprint
+jinja2
+python-dotenv
