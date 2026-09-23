@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio Briefing</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    color: #24292f;
+    line-height: 1.5;
+    margin: 0;
+    background: #f6f8fa;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  .card {
+    background: #ffffff;
+    border: 1px solid #d0d7de;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(27, 31, 36, 0.06);
+    max-width: 520px;
+    width: 100%;
+    padding: 28px 30px 26px;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px 0; }
+  .subtitle { color: #6a737d; margin: 0 0 20px 0; font-size: 13px; }
+  .dropzone {
+    border: 2px dashed #d0d7de;
+    border-radius: 8px;
+    padding: 30px 18px;
+    text-align: center;
+    color: #6a737d;
+    background: #f6f8fa;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone:hover { border-color: #8c959f; }
+  .dropzone.dragover { border-color: #0969da; background: #f0f7ff; }
+  .dropzone .icon { font-size: 28px; display: block; margin-bottom: 6px; }
+  .dropzone b { color: #0969da; }
+  .dropzone .hint { display: block; margin-top: 6px; font-size: 12px; color: #8c959f; }
+  #file { display: none; }
+  .fileinfo {
+    margin-top: 14px;
+    font-size: 13px;
+    text-align: center;
+    color: #24292f;
+  }
+  .fileinfo .name { font-weight: bold; word-break: break-all; }
+  .fileinfo .size { color: #6a737d; font-size: 12px; }
+  .btnrow { margin-top: 20px; text-align: center; }
+  button {
+    font: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    background: #1f883d;
+    border: 1px solid rgba(31, 35, 40, 0.15);
+    border-radius: 6px;
+    padding: 9px 22px;
+    cursor: pointer;
+    min-width: 220px;
+  }
+  button:hover:not(:disabled) { background: #1a7f37; }
+  button:disabled { background: #94d3a2; cursor: default; }
+  .status { margin-top: 18px; text-align: center; display: none; }
+  .status.error { display: block; color: #cf222e; font-size: 13px; }
+  .status.busy { display: block; }
+  .status .msg { margin-top: 12px; color: #24292f; font-size: 13.5px; }
+  .status .elapsed { color: #6a737d; font-size: 12.5px; margin-top: 4px; }
+  .spinner {
+    width: 34px;
+    height: 34px;
+    margin: 0 auto;
+    border: 3px solid #d0d7de;
+    border-top-color: #1f883d;
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .footer { margin-top: 22px; font-size: 11.5px; color: #8c959f; text-align: center; }
+  .footer p { margin: 3px 0; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Portfolio Briefing</h1>
+  <p class="subtitle">
+    Upload your Yahoo Finance portfolio CSV and get a PDF briefing with live
+    prices, recent news and an AI verdict per stock.
+  </p>
+
+  <div class="dropzone" id="dropzone">
+    <span class="icon">&#128193;</span>
+    <b>Click to choose</b> or drag &amp; drop your <b>portfolio.csv</b> here
+    <span class="hint">Export it from Yahoo Finance: Portfolio &rarr; export</span>
+  </div>
+  <input type="file" id="file" accept=".csv,text/csv">
+  <div class="fileinfo" id="fileinfo" style="display:none;">
+    <span class="name" id="filename"></span><br>
+    <span class="size" id="filesize"></span>
+  </div>
+
+  <div class="btnrow">
+    <button id="submit" disabled>Generate briefing</button>
+  </div>
+
+  <div class="status" id="status">
+    <div class="spinner" id="spinner"></div>
+    <div class="msg" id="statusmsg">Working on it &hellip;</div>
+    <div class="elapsed" id="elapsed"></div>
+  </div>
+
+  <div class="footer">
+    <p>Usually takes ~20&ndash;35 seconds. Keep this tab open &mdash; the PDF downloads automatically.</p>
+    <p>Processed on your Raspberry Pi. Nothing is uploaded to any external service except market data and the AI call.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+  var dropzone = document.getElementById("dropzone");
+  var fileInput = document.getElementById("file");
+  var fileinfo = document.getElementById("fileinfo");
+  var filename = document.getElementById("filename");
+  var filesize = document.getElementById("filesize");
+  var submitBtn = document.getElementById("submit");
+  var statusBox = document.getElementById("status");
+  var spinner = document.getElementById("spinner");
+  var statusMsg = document.getElementById("statusmsg");
+  var elapsedBox = document.getElementById("elapsed");
+  var chosenFile = null;
+  var timerId = null;
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  function setFile(f) {
+    if (!f) return;
+    if (!/\.csv$/i.test(f.name) && f.type !== "text/csv") {
+      showError("That doesn't look like a CSV file. Please choose your portfolio.csv export.");
+      return;
+    }
+    chosenFile = f;
+    filename.textContent = f.name;
+    filesize.textContent = formatSize(f.size);
+    fileinfo.style.display = "block";
+    dropzone.style.display = "none";
+    submitBtn.disabled = false;
+  }
+
+  function clearFile() {
+    chosenFile = null;
+    fileInput.value = "";
+    fileinfo.style.display = "none";
+    dropzone.style.display = "block";
+    submitBtn.disabled = true;
+  }
+
+  function showError(message) {
+    stopTimer();
+    statusBox.className = "status error";
+    statusMsg.textContent = message;
+    elapsedBox.textContent = "";
+    submitBtn.disabled = !chosenFile;
+    submitBtn.textContent = "Generate briefing";
+  }
+
+  function startBusy() {
+    statusBox.className = "status busy";
+    statusMsg.textContent = "Fetching live prices, news and the AI analysis \u2026";
+    elapsedBox.textContent = "0 s";
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Generating \u2026";
+    var start = Date.now();
+    stopTimer();
+    timerId = setInterval(function () {
+      var s = Math.floor((Date.now() - start) / 1000);
+      elapsedBox.textContent = s + " s elapsed \u2014 this usually takes 20\u201335 s";
+    }, 1000);
+  }
+
+  function stopTimer() {
+    if (timerId !== null) { clearInterval(timerId); timerId = null; }
+  }
+
+  // --- file selection -------------------------------------------------------
+
+  dropzone.addEventListener("click", function () { fileInput.click(); });
+
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files.length) setFile(fileInput.files[0]);
+  });
+
+  ["dragenter", "dragover"].forEach(function (evt) {
+    dropzone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (evt) {
+    dropzone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+    });
+  });
+  dropzone.addEventListener("drop", function (e) {
+    if (e.dataTransfer && e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+  });
+
+  // --- submit ----------------------------------------------------------------
+
+  submitBtn.addEventListener("click", function () {
+    if (!chosenFile) return;
+
+    var data = new FormData();
+    data.append("file", chosenFile);
+
+    startBusy();
+
+    fetch("/upload", { method: "POST", body: data })
+      .then(function (res) {
+        if (!res.ok) {
+          return res.json().catch(function () {
+            return { error: "The server returned an error (HTTP " + res.status + ")." };
+          }).then(function (body) {
+            throw new Error(body.error || "The server returned an error (HTTP " + res.status + ").");
+          });
+        }
+        // The PDF arrives as an attachment.
+        var contentDisp = res.headers.get("Content-Disposition") || "";
+        var match = contentDisp.match(/filename="?([^";]+)"?/);
+        var downloadName = match ? match[1] : "briefing.pdf";
+        return res.blob().then(function (blob) {
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = downloadName;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+        });
+      })
+      .then(function () {
+        stopTimer();
+        statusBox.className = "status";
+        statusMsg.textContent = "";
+        elapsedBox.textContent = "";
+        statusBox.style.display = "none";
+        submitBtn.textContent = "Generate another briefing";
+        submitBtn.disabled = false;
+      })
+      .catch(function (err) {
+        showError(err && err.message ? err.message : "Something went wrong \u2014 please try again.");
+      });
+  });
+})();
+</script>
+
+</body>
+</html>

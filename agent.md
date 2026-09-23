@@ -28,22 +28,37 @@ Build order (from the plan) and status:
 | 4 | `news.py` | ✅ done (tested live on dev machine) |
 | 5 | `llm.py` | ✅ done (tested end-to-end on dev machine) |
 | 6 | `report.py` + `templates/report.html` | ✅ done (offline-tested; PDF only renders in Docker) |
-| 7 | `main.py` + `templates/upload.html` | ⬜ |
+| 7 | `main.py` + `templates/upload.html` | ✅ done (smoke-tested; see below) |
 | 8 | `docker compose up -d --build` (first full run) | ⬜ |
+
+**Step 7 note:** `_smoke_test.py` (repo root, kept deliberately) verifies the
+Flask app via `app.test_client()` — 9 checks: routes, `/health`, 400 paths
+(no file / garbage CSV / missing column), and a full-pipeline run.
+On the Windows box the last check is *expected* to end 500 at the
+WeasyPrint boundary (pango libs exist only in the image) — that proves
+wiring. On the Pi, run it inside the container
+(`docker compose exec finance-agent python _smoke_test.py`) and it should
+end **200 + real PDF** = full end-to-end acceptance. Uses the network
+(yfinance + one Groq call).
 
 ### Open items
 
 - **`requirements.txt` is NOT pinned** — plan says pin all versions. Owner was
   going to decide between (a) pinning now or (b) the plan's fallback (build on the
   Pi, then `pip freeze` to re-lock). Currently plain unpinned package names.
-- **Git:** repo initialized; working tree clean. Commits exist for plan, Docker
-  scaffolding, CSV parsing, live data, the news milestone (fetch + hardened
-  Google News fallback, test-helper removal), LLM analysis (Groq, JSON-mode
-  prompt + retries + graceful degradation, dev one-shot), and the report
-  milestone (Jinja2→WeasyPrint renderer + briefing template, offline-tested).
+- **Git:** repo initialized. Commits exist for plan, Docker scaffolding, CSV
+  parsing, live data, the news milestone (fetch + hardened Google News
+  fallback, test-helper removal), LLM analysis (Groq, JSON-mode prompt +
+  retries + graceful degradation, dev one-shot), and the report milestone
+  (Jinja2→WeasyPrint renderer + briefing template, offline-tested).
+  **Uncommitted (step 7):** new `main.py`, `templates/upload.html`,
+  `_smoke_test.py`; modified `config.py` (+`MAX_UPLOAD_BYTES`) and
+  `parse_csv.py` (pandas `ParserError`/`EmptyDataError` now re-raised as
+  user-facing `ValueError` — raw pandas text was leaking into 400 responses).
 - **Dev venv:** `.venv` (Python 3.14.3) on the Windows dev box now has
-  pandas 3.0.6 + yfinance 1.7.0 + jinja2 + weasyprint — reference point when
-  pinning `requirements.txt`.
+  pandas 3.0.6, yfinance 1.7.0, jinja2, weasyprint, flask 3.1.3, gunicorn
+  26.2.0, feedparser, groq, python-dotenv — reference point when pinning
+  `requirements.txt`.
   - **WeasyPrint is installed but NOT loadable on this Windows box** (needs
     native pango/gobject libs the OS lacks) — verified, not a bug. PDF
     rendering is Docker-only (Pi); on the dev machine everything up to the
@@ -172,6 +187,24 @@ Build order (from the plan) and status:
     news fallback, empty-portfolio guard, and the analysis-unavailable
     notice. `totals`/subtotal shape is `{value, day_pnl, cost_basis}`;
     unrealized P&L is derived in the template as `value − cost_basis`.
+- **`main.py` (step 7 decisions):**
+  - Endpoints: `GET /` (upload UI), `GET /health` → `{"status": "ok"}` (ops
+    checklist), `POST /upload` (orchestrates the whole pipeline, returns the
+    saved PDF as a download).
+  - Status-code policy: **400** bad/unusable CSV (user-facing `ValueError`
+    text verbatim) · **502** if *all* live-data fetches fail (a report with
+    zero prices is useless) · **500** PDF rendering failure. One bad ticker,
+    empty news, or `LLMAnalysisError` never 5xxs — the report degrades.
+  - Upload UI error contract: errors are `jsonify({"error": ...})` —
+    `upload.html` displays that string verbatim, so keep 4xx/5xx messages
+    user-readable.
+  - Logging: console + file into `output/app.log` (survives rebuilds via the
+    bind mount — the "dad says it didn't work" item). `LOG_LEVEL` env knob;
+    `yfinance` logger capped at WARNING.
+  - `app.config["MAX_CONTENT_LENGTH"] = config.MAX_UPLOAD_BYTES` (4 MB) —
+    oversized uploads get Flask's 413.
+  - `if __name__ == "__main__":` runs plain Flask for local dev; the container
+    always uses Gunicorn (Dockerfile CMD).
 - **WeasyPrint CSS:** `@page` rules, `page-break-inside: avoid` per stock section,
   `overflow-wrap: break-word` on URLs (news links blow out page width otherwise).
 - **PDFs:** timestamped filenames `briefing_YYYY-MM-DD_HHMMSS.pdf` into
@@ -189,6 +222,10 @@ Build order (from the plan) and status:
   target — files transfer via git or `scp -r`.
 - `docker compose build` works anytime; **`docker compose up` only after
   `main.py` exists** (gunicorn targets `main:app`, container would crash-loop).
+- `docker compose build` works anytime; `docker compose up` is now possible
+  (`main.py` exists — gunicorn targets `main:app`). Step 8 = first run on the
+  Pi, then `docker compose exec finance-agent python _smoke_test.py` for
+  end-to-end acceptance.
 - Local shell here is Windows (cmd) — no bash syntax in commands.
   - Quirk: the shell wrapper mangles quoted paths/strings with spaces — avoid
     `"paths with spaces"` and inline `python -c "..."`; use script files instead.

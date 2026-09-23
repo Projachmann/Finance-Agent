@@ -19,6 +19,10 @@ LLM_TIMEOUT_SECONDS = 60
 # also bounds worst-case latency and cost.
 LLM_MAX_TOKENS = 1200
 
+# --- Upload ---
+# Portfolio CSVs are a few KB; the cap keeps a fat upload from clogging the Pi.
+MAX_UPLOAD_BYTES = 1 * 1024 * 1024  # 1 MiB
+
 # --- Output ---
 # Resolved relative to this file: /app/output inside Docker (bind-mounted
 # to ./output on the Pi), or ./output next to the source in CLI mode.

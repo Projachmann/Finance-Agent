@@ -137,11 +137,21 @@ def parse_csv(source):
 
     Raises:
         ValueError with a user-facing message if the file is not a usable
-        portfolio export (missing columns / no valid rows).
+        portfolio export (unreadable / empty / missing columns / no valid
+        rows).
     """
     text = _load_text(source)
-    df = pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False,
-                     skipinitialspace=True)
+    try:
+        df = pd.read_csv(io.StringIO(text), dtype=str, keep_default_na=False,
+                         skipinitialspace=True)
+    except pd.errors.EmptyDataError as e:
+        raise ValueError("The uploaded file is empty - no portfolio data "
+                         "found.") from e
+    except pd.errors.ParserError as e:
+        # Ragged rows etc. (pd.errors.ParserError is NOT a ValueError,
+        # so without this the raw pandas message would leak to the user).
+        raise ValueError("Not a valid Yahoo Finance portfolio export "
+                         "(the file could not be parsed as CSV).") from e
     df.columns = [str(c).strip() for c in df.columns]
 
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
