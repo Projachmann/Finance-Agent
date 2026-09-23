@@ -21,7 +21,7 @@ A self-hosted web app running on a Raspberry Pi 5. Dad uploads his Yahoo Finance
 | CSV parsing | pandas | Group by symbol, weighted-avg purchase price |
 | Live market data | yfinance (`fast_info`) | Use `fast_info` not `.info` — more stable |
 | News headlines | feedparser | Yahoo RSS with Google News RSS as fallback |
-| AI analysis | Groq API — `llama-3.3-70b-versatile` | Free tier, no credit card, ~2–5s response |
+| AI analysis | Groq API — `openai/gpt-oss-120b` | Free tier, no credit card, ~2–5s response |
 | PDF generation | WeasyPrint | Needs system apt libraries (see below) |
 | Containerisation | Docker + Docker Compose | Handles all WeasyPrint apt deps cleanly |
 | Hosting | Raspberry Pi 5 via Tailscale | Guest network, no port forwarding needed |
@@ -111,7 +111,8 @@ Current test holdings:
 ## Groq API
 
 - Sign up at `console.groq.com` — no credit card required
-- Model: `llama-3.3-70b-versatile`
+- Model: `openai/gpt-oss-120b` (was `llama-3.3-70b-versatile` — retired by
+  Groq, 404 `model_not_found` observed 2026-09-23; see agent.md)
 - Free limits: 30 RPM — more than enough for on-demand use
 - Use `response_format={"type": "json_object"}` for structured output
 - Prompt must say "use only the provided data, do not invent facts", temperature 0

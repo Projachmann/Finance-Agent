@@ -7,11 +7,17 @@ loaded at runtime via python-dotenv — never import them here.
 import os
 
 # --- LLM (Groq) ---
-GROQ_MODEL = "llama-3.3-70b-versatile"
+# llama-3.3-70b-versatile was retired by Groq (404 model_not_found,
+# observed 2026-09-23); gpt-oss-120b is the current large general-purpose
+# model on the account (verified end-to-end on test_portfolio.csv).
+GROQ_MODEL = "openai/gpt-oss-120b"
 LLM_TEMPERATURE = 0
 LLM_MAX_RETRIES = 3          # retries on 429 / transient errors
-LLM_RETRY_BACKOFF_SECONDS = 2
+LLM_RETRY_BACKOFF_SECONDS = 2   # base delay; doubles per attempt (2s, 4s, 8s)
 LLM_TIMEOUT_SECONDS = 60
+# Cap on the analysis response. The briefing is short by design; the cap
+# also bounds worst-case latency and cost.
+LLM_MAX_TOKENS = 1200
 
 # --- Output ---
 # Resolved relative to this file: /app/output inside Docker (bind-mounted

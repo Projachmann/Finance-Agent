@@ -12,7 +12,7 @@ live market data + news → Groq LLM analysis → styled PDF briefing, returned 
 download. On-demand only, no scheduling.
 
 Stack: Flask + Gunicorn, pandas, yfinance, feedparser, Groq
-(`llama-3.3-70b-versatile`), WeasyPrint, Docker Compose. Full details + file
+(`openai/gpt-oss-120b`), WeasyPrint, Docker Compose. Full details + file
 structure in the plan.
 
 ## Progress
@@ -26,7 +26,7 @@ Build order (from the plan) and status:
 | 2 | `parse_csv.py` | ✅ done |
 | 3 | `live_data.py` | ✅ done (tested live on dev machine) |
 | 4 | `news.py` | ✅ done (tested live on dev machine) |
-| 5 | `llm.py` | ⬜ |
+| 5 | `llm.py` | ✅ done (tested end-to-end on dev machine) |
 | 6 | `report.py` + `templates/report.html` | ⬜ |
 | 7 | `main.py` + `templates/upload.html` | ⬜ |
 | 8 | `docker compose up -d --build` (first full run) | ⬜ |
@@ -36,9 +36,10 @@ Build order (from the plan) and status:
 - **`requirements.txt` is NOT pinned** — plan says pin all versions. Owner was
   going to decide between (a) pinning now or (b) the plan's fallback (build on the
   Pi, then `pip freeze` to re-lock). Currently plain unpinned package names.
-- **Git:** repo initialized; commits exist for plan, Docker scaffolding, CSV
-  parsing, and live data. Untracked: `agent.md`, `test_portfolio.csv`, `news.py`,
-  `test_news.py` — commit with the news milestone.
+- **Git:** repo initialized; working tree clean. Commits exist for plan, Docker
+  scaffolding, CSV parsing, live data, the news milestone (fetch + hardened
+  Google News fallback, test-helper removal), and LLM analysis (Groq, JSON-mode
+  prompt + retries + graceful degradation, dev one-shot).
 - **Dev venv:** `.venv` (Python 3.14.3) on the Windows dev box now has
   pandas 3.0.6 + yfinance 1.7.0 — reference point when pinning `requirements.txt`.
 - **Test CSV:** `test_portfolio.csv` now in repo root — `VUSA.DE` (13 @ €89.00),
@@ -83,13 +84,18 @@ Build order (from the plan) and status:
     for bad symbols are unavoidable library noise.
 - **`news.py` API (data contract — llm.py / report.py build against this):**
   - `fetch_news(symbols)` → `{symbol: [{title, url, published}, ...]}`.
-    `published` is the feed's date string (may be `None`).
+    `published` is an ISO 8601 UTC string (e.g. `2026-09-23T03:59:11Z`),
+    normalized from the parsed feed timestamp, or `None` if the feed gives
+    no date.
   - Empty list = no news (both feeds empty or both failed) — report renders
     "no recent news available". Workers never raise; failures are logged.
   - Sources, in order: Yahoo Finance RSS per symbol, then Google News RSS
     for the **quoted** symbol. Quoted on purpose — an unquoted query
-    fuzzy-matches badly ("VUSA" → visa/photography articles). An empty quoted
-    result is honestly reported as "no news" (e.g. VUSA.DE has little coverage).
+    fuzzy-matches badly ("VUSA" → visa/photography articles). Quoted is still
+    not exact (Google matches against full article text), so the fallback
+    additionally drops entries whose title and summary never mention the
+    symbol. Nothing surviving (or an empty result) is honestly reported as
+    "no news" (e.g. VUSA.DE has little coverage).
   - Headlines deduped by URL, sorted most-recent-first (via feedparser's
     `published_parsed`; undated entries sink to the end), then truncated to
     `NEWS_HEADLINES_PER_TICKER`. Truncation happens after sorting.
@@ -99,8 +105,31 @@ Build order (from the plan) and status:
     the Google fallback covers it; the Pi's residential IP is likely fine.
     Google News links are long redirect URLs → `overflow-wrap` in the template
     is mandatory.
-  - `test_news.py` is a dev helper (like `test_portfolio.csv`), not part of
-    the app.
+- **`llm.py` API (data contract — report.py builds against this):**
+  - `analyze_portfolio(pnl, live, news)` → `{"stocks": [{symbol, verdict,
+    reasoning}, ...], "commentary": str}` — one entry per holding, in input
+    order. `live` is needed for 1y high/low (`compute_pnl` rows don't carry
+    them).
+  - Raises `LLMAnalysisError` when no usable analysis is available (missing
+    API key, non-transient API error, retries exhausted on 429/timeouts,
+    response without usable JSON). **Callers must catch it and render
+    "Analysis unavailable"** — a dead LLM never kills the briefing.
+  - Model: `config.GROQ_MODEL` = `openai/gpt-oss-120b`. Note:
+    `llama-3.3-70b-versatile` was retired by Groq (404 `model_not_found`,
+    observed 2026-09-23; absent from the account's model list) — don't
+    restore it.
+  - The 1y close history is never sent to the LLM (noise); only derived
+    stats go in. News URLs are dropped before the call (useless to the
+    model, they burn tokens).
+  - `response_format={"type": "json_object"}` is requested, plus defensive
+    parsing as a backstop (markdown fences, hallucinated/duplicate symbols
+    dropped).
+  - Retries: exponential backoff on 429 / connection / 5xx, bounded by the
+    `LLM_*` config knobs; the client is built with `max_retries=0` so llm.py
+    owns the retry policy.
+  - Dev one-shot: `python llm.py <portfolio.csv>` runs the full pipeline
+    (parse → live → news → analysis) and prints the JSON — how the
+    end-to-end verification was done on the dev machine.
 - **WeasyPrint CSS:** `@page` rules, `page-break-inside: avoid` per stock section,
   `overflow-wrap: break-word` on URLs (news links blow out page width otherwise).
 - **PDFs:** timestamped filenames `briefing_YYYY-MM-DD_HHMMSS.pdf` into
