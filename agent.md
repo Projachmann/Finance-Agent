@@ -27,7 +27,7 @@ Build order (from the plan) and status:
 | 3 | `live_data.py` | ✅ done (tested live on dev machine) |
 | 4 | `news.py` | ✅ done (tested live on dev machine) |
 | 5 | `llm.py` | ✅ done (tested end-to-end on dev machine) |
-| 6 | `report.py` + `templates/report.html` | ⬜ |
+| 6 | `report.py` + `templates/report.html` | ✅ done (offline-tested; PDF only renders in Docker) |
 | 7 | `main.py` + `templates/upload.html` | ⬜ |
 | 8 | `docker compose up -d --build` (first full run) | ⬜ |
 
@@ -38,10 +38,16 @@ Build order (from the plan) and status:
   Pi, then `pip freeze` to re-lock). Currently plain unpinned package names.
 - **Git:** repo initialized; working tree clean. Commits exist for plan, Docker
   scaffolding, CSV parsing, live data, the news milestone (fetch + hardened
-  Google News fallback, test-helper removal), and LLM analysis (Groq, JSON-mode
-  prompt + retries + graceful degradation, dev one-shot).
+  Google News fallback, test-helper removal), LLM analysis (Groq, JSON-mode
+  prompt + retries + graceful degradation, dev one-shot), and the report
+  milestone (Jinja2→WeasyPrint renderer + briefing template, offline-tested).
 - **Dev venv:** `.venv` (Python 3.14.3) on the Windows dev box now has
-  pandas 3.0.6 + yfinance 1.7.0 — reference point when pinning `requirements.txt`.
+  pandas 3.0.6 + yfinance 1.7.0 + jinja2 + weasyprint — reference point when
+  pinning `requirements.txt`.
+  - **WeasyPrint is installed but NOT loadable on this Windows box** (needs
+    native pango/gobject libs the OS lacks) — verified, not a bug. PDF
+    rendering is Docker-only (Pi); on the dev machine everything up to the
+    WeasyPrint call is testable (that's why `render_pdf` imports it lazily).
 - **Test CSV:** `test_portfolio.csv` now in repo root — `VUSA.DE` (13 @ €89.00),
   `ETL.PA` (20 @ €2.80), both EUR. `parse_csv.py` + `live_data.py` verified
   against it.
@@ -130,6 +136,42 @@ Build order (from the plan) and status:
   - Dev one-shot: `python llm.py <portfolio.csv>` runs the full pipeline
     (parse → live → news → analysis) and prints the JSON — how the
     end-to-end verification was done on the dev machine.
+- **`report.py` API (data contract — main.py builds against this):**
+  - `render_html(pnl, live, news, analysis=None, warnings=None)` → `str` —
+    template render only, no WeasyPrint needed.
+  - `render_pdf(same args)` → `bytes` — lazy-imports weasyprint inside the
+    function (dev box can't load it; the Docker image has pango/cairo).
+  - `save_report(same args, output_dir=None)` → `Path` — writes
+    `briefing_YYYYMMDD_HHMMSS.pdf` (UTC stamp) into `config.OUTPUT_DIR`
+    (honors `config.REPORT_FILENAME_PREFIX`).
+  - All four take the raw outputs of the previous steps: `pnl` from
+    `compute_pnl()`, `live` from `fetch_live_data()`, `news` from
+    `fetch_news()`, `analysis` from `analyze_portfolio()` **or `None`**
+    (callers catch `LLMAnalysisError` and pass `None` — a dead LLM renders
+    "AI analysis unavailable" per holding, same convention as the fetch
+    steps). `warnings` = `parse_csv()["warnings"]`.
+  - Formatting/rounding lives in report.py (`fmt.money/price/pct/
+    signed_money/quantity/date` exposed to the template); `compute_pnl` hands
+    over raw floats. Currency symbols from a small map (EUR/USD/GBP/CHF/SEK/
+    NOK), unknown currencies render as ISO code.
+  - `sparkline_svg()` in report.py: ~1y daily closes → inline `<svg>`
+    polyline (WeasyPrint renders basic SVG natively; no charting lib). < 2
+    points → `""` and the template shows "no 1-year price history".
+  - Template is WeasyPrint-safe by design: `@page` with footer (generated
+    timestamp + page x of y), `page-break-inside: avoid` on each `.stock`
+    card, `overflow-wrap: break-word` on links. Sparkline rendered with
+    `| safe` (machine-generated numeric SVG; autoescape stays on for all
+    user data — news titles, LLM text).
+  - Dev one-shot: `python report.py <portfolio.csv>` — full pipeline (parse →
+    live → news → LLM) → prints analysis + stripped live data, writes
+    `last_report.html` preview, then the PDF (exits 1 with a message if
+    WeasyPrint can't load, e.g. on the Windows dev box).
+  - Offline test (run in the venv, disposable script, removed after use)
+    verified: full-data render, autoescaping of LLM/news text, currency-
+    mismatch subtotals table (incl. cost basis), missing-ticker notice, no-
+    news fallback, empty-portfolio guard, and the analysis-unavailable
+    notice. `totals`/subtotal shape is `{value, day_pnl, cost_basis}`;
+    unrealized P&L is derived in the template as `value − cost_basis`.
 - **WeasyPrint CSS:** `@page` rules, `page-break-inside: avoid` per stock section,
   `overflow-wrap: break-word` on URLs (news links blow out page width otherwise).
 - **PDFs:** timestamped filenames `briefing_YYYY-MM-DD_HHMMSS.pdf` into

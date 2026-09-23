@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Portfolio Briefing</title>
+<style>
+  @page {
+    size: A4;
+    margin: 16mm 14mm 20mm 14mm;
+    @bottom-left {
+      content: "Generated {{ generated_at }}";
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 8px;
+      color: #6a737d;
+    }
+    @bottom-right {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 8px;
+      color: #6a737d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Helvetica, Arial, sans-serif;
+    font-size: 10.5px;
+    color: #24292f;
+    line-height: 1.45;
+    margin: 0;
+  }
+  a { color: #0969da; text-decoration: none; overflow-wrap: break-word; }
+  h1 { font-size: 20px; margin: 0 0 2px 0; }
+  h2 { font-size: 13px; margin: 22px 0 8px 0; border-bottom: 1.5px solid #d0d7de; padding-bottom: 3px; }
+  h3 { font-size: 11.5px; margin: 0 0 8px 0; }
+  p { margin: 6px 0; }
+  .muted { color: #6a737d; }
+  .pos { color: #1a7f37; }
+  .neg { color: #cf222e; }
+  .header { margin-bottom: 14px; }
+  .subtitle { color: #6a737d; margin: 0; font-size: 10px; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: #6a737d;
+    border-bottom: 1.5px solid #d0d7de;
+    padding: 5px 6px;
+  }
+  td { border-bottom: 1px solid #eaecef; padding: 5px 6px; vertical-align: top; }
+  .num { text-align: right; white-space: nowrap; }
+  .stock { page-break-inside: avoid; border: 1px solid #d0d7de; border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; }
+  .grid { width: 100%; border-collapse: collapse; }
+  .grid td { border: none; padding: 2px 12px 2px 0; vertical-align: top; }
+  .grid .k { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.4px; color: #6a737d; padding-top: 4px; width: 21%; }
+  .grid .v { font-size: 11px; width: 29%; }
+  .spark { margin-top: 10px; }
+  .spark svg { display: block; }
+  .no-spark { font-size: 9.5px; color: #6a737d; }
+  .news { margin-top: 10px; }
+  .news ul { margin: 4px 0 0 0; padding-left: 16px; }
+  .news li { margin: 0 0 4px 0; }
+  .when { color: #6a737d; font-size: 9px; }
+  .ai { margin-top: 10px; border-top: 1px solid #eaecef; padding-top: 8px; }
+  .badge { display: inline-block; font-size: 9.5px; font-weight: bold; padding: 2px 9px; border-radius: 9px; margin-right: 8px; vertical-align: 1px; }
+  .badge.buy { background: #dafbe1; color: #1a7f37; }
+  .badge.sell { background: #ffebe9; color: #cf222e; }
+  .badge.hold { background: #fff8c5; color: #7d4e00; }
+  .badge.other { background: #eaecef; color: #444c56; }
+  .notice { border: 1px solid #d4a72c; background: #fff8c5; border-radius: 6px; padding: 8px 12px; margin: 10px 0; font-size: 10px; }
+  .notice h3 { margin: 0 0 4px 0; font-size: 10.5px; }
+  .notice ul { margin: 0; padding-left: 16px; }
+  .notice li { margin: 2px 0; }
+  .disclaimer { margin-top: 24px; border-top: 1px solid #d0d7de; padding-top: 8px; font-size: 8.5px; color: #6a737d; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Portfolio Briefing</h1>
+  <p class="subtitle">Generated {{ generated_at }} &middot; Live data: Yahoo Finance (yfinance) &middot; AI: Groq</p>
+</div>
+
+{% if not has_holdings %}
+  <p class="muted">No holdings to report.</p>
+{% else %}
+
+{% if currency_mismatch %}
+  <div class="notice">
+    <h3>Multiple currencies in portfolio</h3>
+    <p>Holdings are denominated in more than one currency, so headline totals are not shown
+    (mixing currencies would be misleading). Per-currency subtotals below.</p>
+  </div>
+{% endif %}
+
+{% if warnings %}
+  <div class="notice">
+    <h3>Notes from your upload</h3>
+    <ul>
+      {% for w in warnings %}
+      <li>{{ w }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+{% if missing %}
+  <div class="notice">
+    <h3>Missing live data</h3>
+    <p>No live price could be fetched for: {{ missing | join(", ") }}.
+    These holdings are shown in the table below, but their value and P&amp;L could not be calculated.</p>
+  </div>
+{% endif %}
+
+<h2>Portfolio summary</h2>
+{% if totals %}
+{% set upnl = (totals.value - totals.cost_basis) if (totals.value is not none and totals.cost_basis is not none) else none %}
+  <table class="grid">
+    <tr>
+      <td class="k">Total value</td>
+      <td class="v">{{ fmt.money(totals.value, currency) }}</td>
+      <td class="k">Day P&amp;L</td>
+      <td class="v {% if totals.day_pnl is not none and totals.day_pnl > 0 %}pos{% elif totals.day_pnl is not none and totals.day_pnl < 0 %}neg{% endif %}">{{ fmt.signed_money(totals.day_pnl, currency) }}</td>
+    </tr>
+    <tr>
+      <td class="k">Cost basis</td>
+      <td class="v">{{ fmt.money(totals.cost_basis, currency) }}</td>
+      <td class="k">Unrealized P&amp;L</td>
+      <td class="v {% if upnl is not none and upnl > 0 %}pos{% elif upnl is not none and upnl < 0 %}neg{% endif %}">{{ fmt.signed_money(upnl, currency) }}{% if upnl is not none and totals.cost_basis %} ({{ fmt.pct(upnl / totals.cost_basis * 100, signed=true) }}){% endif %}</td>
+    </tr>
+  </table>
+{% else %}
+  <table>
+    <tr>
+      <th>Currency</th>
+      <th class="num">Value</th>
+      <th class="num">Day P&amp;L</th>
+      <th class="num">Cost basis</th>
+    </tr>
+    {% for s in subtotals %}
+    <tr>
+      <td>{{ s.currency }}</td>
+      <td class="num">{{ fmt.money(s.value, s.currency) }}</td>
+      <td class="num {% if s.day_pnl is not none and s.day_pnl > 0 %}pos{% elif s.day_pnl is not none and s.day_pnl < 0 %}neg{% endif %}">{{ fmt.signed_money(s.day_pnl, s.currency) }}</td>
+      <td class="num">{{ fmt.money(s.cost_basis, s.currency) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+{% endif %}
+
+<h2>Holdings</h2>
+<table>
+  <tr>
+    <th>Symbol</th>
+    <th class="num">Qty</th>
+    <th class="num">Avg cost</th>
+    <th class="num">Live price</th>
+    <th class="num">Value</th>
+    <th class="num">Day P&amp;L</th>
+    <th class="num">P&amp;L</th>
+    <th class="num">P&amp;L %</th>
+    <th class="num">Allocation</th>
+  </tr>
+  {% for row in rows %}
+  <tr>
+    <td><b>{{ row.symbol }}</b>{% if row.currency %} <span class="muted">{{ row.currency }}</span>{% endif %}</td>
+    <td class="num">{{ fmt.quantity(row.quantity) }}</td>
+    <td class="num">{{ fmt.money(row.avg_cost, row.currency) }}</td>
+    <td class="num">{{ fmt.price(row.live_price) }}</td>
+    <td class="num">{{ fmt.money(row.value, row.currency) }}</td>
+    <td class="num {% if row.day_pnl is not none and row.day_pnl > 0 %}pos{% elif row.day_pnl is not none and row.day_pnl < 0 %}neg{% endif %}">{{ fmt.signed_money(row.day_pnl, row.currency) }}</td>
+    <td class="num {% if row.pnl is not none and row.pnl > 0 %}pos{% elif row.pnl is not none and row.pnl < 0 %}neg{% endif %}">{{ fmt.signed_money(row.pnl, row.currency) }}</td>
+    <td class="num {% if row.pnl_pct is not none and row.pnl_pct > 0 %}pos{% elif row.pnl_pct is not none and row.pnl_pct < 0 %}neg{% endif %}">{{ fmt.pct(row.pnl_pct, signed=true) }}</td>
+    <td class="num">{{ fmt.pct(row.allocation_pct) }}</td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>Per-holding detail</h2>
+{% for row in rows %}
+{% set verdict = (row.ai.verdict or "").lower() if row.ai else "" %}
+<div class="stock">
+  <h3>{{ row.symbol }}{% if row.currency %} <span class="muted">{{ row.currency }}</span>{% endif %}</h3>
+  <table class="grid">
+    <tr>
+      <td class="k">Live price</td>
+      <td class="v">{{ fmt.price(row.live_price) }}</td>
+      <td class="k">52w high</td>
+      <td class="v">{{ fmt.price(row.year_high) }}</td>
+    </tr>
+    <tr>
+      <td class="k">Quantity</td>
+      <td class="v">{{ fmt.quantity(row.quantity) }}</td>
+      <td class="k">52w low</td>
+      <td class="v">{{ fmt.price(row.year_low) }}</td>
+    </tr>
+    <tr>
+      <td class="k">Avg cost</td>
+      <td class="v">{{ fmt.money(row.avg_cost, row.currency) }}</td>
+      <td class="k">Unrealized P&amp;L</td>
+      <td class="v {% if row.pnl is not none and row.pnl > 0 %}pos{% elif row.pnl is not none and row.pnl < 0 %}neg{% endif %}">{{ fmt.signed_money(row.pnl, row.currency) }}{% if row.pnl_pct is not none %} ({{ fmt.pct(row.pnl_pct, signed=true) }}){% endif %}</td>
+    </tr>
+  </table>
+  {% if row.sparkline %}
+  <div class="spark">{{ row.sparkline | safe }}<div class="no-spark">1-year price history</div></div>
+  {% else %}
+  <div class="spark no-spark">No 1-year price history available.</div>
+  {% endif %}
+  <div class="news">
+    <b>Recent news</b>
+    {% if row.headlines %}
+    <ul>
+      {% for h in row.headlines %}
+      <li><a href="{{ h.url }}">{{ h.title }}</a>{% if h.published %} <span class="when">{{ fmt.date(h.published) }}</span>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted" style="margin: 4px 0 0 0;">No recent news available.</p>
+    {% endif %}
+  </div>
+  <div class="ai">
+    {% if analysis %}
+      {% if row.ai %}
+        <span class="badge {% if verdict.startswith("buy") %}buy{% elif verdict.startswith("sell") %}sell{% elif verdict.startswith("hold") %}hold{% else %}other{% endif %}">{{ row.ai.verdict }}</span>
+        {{ row.ai.reasoning }}
+      {% else %}
+        <p class="muted" style="margin: 0;">No AI verdict available for this holding.</p>
+      {% endif %}
+    {% else %}
+      <p class="muted" style="margin: 0;">AI analysis unavailable.</p>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% if commentary %}
+<h2>Portfolio commentary</h2>
+<p>{{ commentary }}</p>
+{% endif %}
+
+{% endif %}
+
+<div class="disclaimer">
+  This briefing is generated automatically from public market data and AI analysis.
+  It is for personal information only and is not investment advice.
+  Data may be delayed or inaccurate; verify prices before making decisions.
+</div>
+
+</body>
+</html>
