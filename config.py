@@ -29,3 +29,5 @@ TICKER_FETCH_TIMEOUT_SECONDS = 15
 # --- News (feedparser) ---
 NEWS_HEADLINES_PER_TICKER = 3
 NEWS_TIMEOUT_SECONDS = 10
+NEWS_MAX_RETRIES = 1          # extra attempts on HTTP 429 (feeds rate-limit)
+NEWS_RETRY_BACKOFF_SECONDS = 1.5
