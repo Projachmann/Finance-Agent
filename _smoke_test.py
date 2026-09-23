@@ -118,7 +118,7 @@ r = client.post("/upload", data={"file": good}, content_type="multipart/form-dat
 print(f"full-pipeline status={r.status_code}")
 if r.status_code == 200:
     ctype = r.headers.get("Content-Type", "")
-    first = r.data[:8]
+    first = r.data[:5]
     check("full pipeline -> 200 PDF", ctype == "application/pdf" and first == b"%PDF-",
           f"content-type={ctype} magic={first!r}")
     print("  PDF name:", r.headers.get("Content-Disposition"))
